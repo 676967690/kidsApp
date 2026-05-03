@@ -1,23 +1,60 @@
-// Sound Effects using Web Audio API
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+const state = {
+    mode: null,
+    difficulty: 'easy',
+    format: '12',
+    theme: 'light',
+    score: 0,
+    round: 0,
+    maxRounds: 10,
+    timer: null,
+    timeLeft: 0,
+    targetTime: { h: 0, m: 0, s: 0 },
+    isPlaying: false
+};
 
+const screens = {
+    menu: document.getElementById('mainMenu'),
+    game: document.getElementById('gameScreen'),
+    results: document.getElementById('resultsScreen')
+};
+
+const ui = {
+    modeDisplay: document.getElementById('modeDisplay'),
+    roundDisplay: document.getElementById('roundDisplay'),
+    timerDisplay: document.getElementById('timerDisplay'),
+    scoreDisplay: document.getElementById('scoreDisplay'),
+    feedback: document.getElementById('feedback'),
+    checkBtn: document.getElementById('checkBtn'),
+    nextBtn: document.getElementById('nextBtn'),
+    quitBtn: document.getElementById('quitBtn'),
+    difficultySelect: document.getElementById('difficultySelect'),
+    ampmGroup: document.getElementById('ampmGroup'),
+    celestialBody: document.getElementById('celestialBody')
+};
+
+let hourRoller, minuteRoller, ampmRoller;
+let canvas, ctx;
+let skyCanvas, skyCtx;
+let clockRadius;
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 function playSound(type) {
     if (audioCtx.state === 'suspended') audioCtx.resume();
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.connect(gain);
     gain.connect(audioCtx.destination);
-
     const now = audioCtx.currentTime;
-    
+
     if (type === 'tick') {
         osc.type = 'sine';
         osc.frequency.setValueAtTime(800, now);
+        osc.frequency.exponentialRampToValueAtTime(300, now + 0.05);
         gain.gain.setValueAtTime(0.1, now);
         gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
         osc.start(now);
         osc.stop(now + 0.05);
-    } else if (type === 'success') {
+    } else if (type === 'correct') {
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(500, now);
         osc.frequency.linearRampToValueAtTime(1000, now + 0.1);
@@ -25,9 +62,9 @@ function playSound(type) {
         gain.gain.linearRampToValueAtTime(0, now + 0.3);
         osc.start(now);
         osc.stop(now + 0.3);
-    } else if (type === 'error') {
+    } else if (type === 'wrong') {
         osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(200, now);
+        osc.frequency.setValueAtTime(150, now);
         osc.frequency.linearRampToValueAtTime(100, now + 0.2);
         gain.gain.setValueAtTime(0.2, now);
         gain.gain.linearRampToValueAtTime(0, now + 0.3);
@@ -36,542 +73,470 @@ function playSound(type) {
     }
 }
 
-// Roller Slider Class
 class RollerSlider {
     constructor(elementId, min, max, initialVal, onChange) {
         this.container = document.getElementById(elementId);
-        this.itemsDiv = this.container.querySelector('.roller-items');
+        this.track = this.container.querySelector('.roller-track');
         this.min = min;
         this.max = max;
-        this.itemHeight = 40;
-        this.values = [];
-        for(let i=min; i<=max; i++) {
-            this.values.push(i.toString().padStart(2, '0'));
-        }
-        if(elementId.includes('ampm')) {
-            this.values = ['AM', 'PM'];
-            this.max = 1; 
-        }
-
-        this.currentIndex = initialVal;
+        this.value = initialVal;
         this.onChange = onChange;
         
-        this.render();
-        this.setupInteractions();
-    }
-
-    render() {
-        this.itemsDiv.innerHTML = '';
-        // Add padding items for smooth looping feel visually
-        this.values.forEach((val, idx) => {
-            const div = document.createElement('div');
-            div.className = 'roller-item';
-            div.textContent = val;
-            if(idx === this.currentIndex) div.classList.add('active');
-            this.itemsDiv.appendChild(div);
-        });
-        this.updatePosition(false);
-    }
-
-    updatePosition(animate = true) {
-        const offset = -(this.currentIndex * this.itemHeight) + (this.container.offsetHeight / 2) - (this.itemHeight / 2);
-        this.itemsDiv.style.transition = animate ? 'transform 0.3s cubic-bezier(0.25, 1, 0.5, 1)' : 'none';
-        this.itemsDiv.style.transform = `translateY(${offset}px)`;
+        const style = getComputedStyle(document.documentElement);
+        this.itemHeight = parseInt(style.getPropertyValue('--item-height')) || 50;
         
-        // Update active class
-        Array.from(this.itemsDiv.children).forEach((child, idx) => {
-            child.classList.toggle('active', idx === this.currentIndex);
-        });
+        this.items = [];
+        this.isDragging = false;
+        this.startY = 0;
+        this.currentOffset = 0;
+        this.startOffset = 0;
+        
+        this.initItems();
+        this.updateVisuals(false);
+        this.addEvents();
+    }
+
+    initItems() {
+        this.track.innerHTML = '';
+        this.items = [];
+        
+        const totalItems = (this.max - this.min) + 1;
+        const repeatCount = 3; 
+        
+        for (let r = 0; r < repeatCount; r++) {
+            for (let i = this.min; i <= this.max; i++) {
+                const div = document.createElement('div');
+                div.className = 'roller-item';
+                div.textContent = i.toString().padStart(2, '0');
+                if (i === this.value && r === 1) div.classList.add('active');
+                this.track.appendChild(div);
+                this.items.push({ element: div, value: i, group: r });
+            }
+        }
+        
+        const containerH = this.container.clientHeight;
+        const centerOffset = (containerH / 2) - (this.itemHeight / 2);
+        const startIndex = (this.value - this.min) + (totalItems * 1); 
+        this.currentOffset = centerOffset - (startIndex * this.itemHeight);
+        this.track.style.transform = `translateY(${this.currentOffset}px)`;
+    }
+
+    addEvents() {
+        this.container.addEventListener('mousedown', (e) => this.onDragStart(e.clientY));
+        window.addEventListener('mousemove', (e) => this.onDragMove(e.clientY));
+        window.addEventListener('mouseup', () => this.onDragEnd());
+
+        this.container.addEventListener('touchstart', (e) => this.onDragStart(e.touches[0].clientY), {passive: false});
+        window.addEventListener('touchmove', (e) => this.onDragMove(e.touches[0].clientY), {passive: false});
+        window.addEventListener('touchend', () => this.onDragEnd());
+
+        this.container.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? 1 : -1;
+            this.changeValue(delta);
+        }, {passive: false});
+    }
+
+    onDragStart(y) {
+        this.isDragging = true;
+        this.startY = y;
+        this.startOffset = this.currentOffset;
+        this.container.style.cursor = 'grabbing';
+        this.track.style.transition = 'none';
+    }
+
+    onDragMove(y) {
+        if (!this.isDragging) return;
+        const delta = y - this.startY;
+        this.currentOffset = this.startOffset + delta;
+        this.track.style.transform = `translateY(${this.currentOffset}px)`;
+    }
+
+    onDragEnd() {
+        if (!this.isDragging) return;
+        this.isDragging = false;
+        this.container.style.cursor = 'grab';
+        this.snapToNearest();
+    }
+
+    snapToNearest() {
+        const containerH = this.container.clientHeight;
+        const centerOffset = (containerH / 2) - (this.itemHeight / 2);
+        
+        let rawIndex = (centerOffset - this.currentOffset) / this.itemHeight;
+        let newIndex = Math.round(rawIndex);
+
+        const totalItems = (this.max - this.min) + 1;
+        
+        if (newIndex < totalItems) {
+            newIndex += totalItems;
+        } else if (newIndex >= totalItems * 2) {
+            newIndex -= totalItems;
+        }
+
+        const newValue = (newIndex % totalItems) + this.min;
+
+        if (newValue !== this.value) {
+            this.value = newValue;
+            playSound('tick');
+            if (this.onChange) this.onChange(this.value);
+        }
+
+        const finalIndex = (this.value - this.min) + totalItems;
+        const targetOffset = centerOffset - (finalIndex * this.itemHeight);
+        this.currentOffset = targetOffset;
+        
+        this.updateVisuals(true);
+    }
+
+    changeValue(direction) {
+        let newVal = this.value + direction;
+        if (newVal < this.min) newVal = this.max;
+        if (newVal > this.max) newVal = this.min;
+
+        if (newVal !== this.value) {
+            this.value = newVal;
+            playSound('tick');
+            if (this.onChange) this.onChange(this.value);
+            this.updateVisuals(true);
+        }
     }
 
     setValue(val) {
-        if(val < this.min) val = this.min;
-        if(val > this.max) val = this.max;
-        this.currentIndex = val;
-        this.updatePosition(true);
-        if(this.onChange) this.onChange(this.getValue());
+        if (val < this.min) val = this.min;
+        if (val > this.max) val = this.max;
+        if (val !== this.value) {
+            this.value = val;
+            if (this.onChange) this.onChange(this.value);
+        }
+        this.updateVisuals(true);
     }
 
-    getValue() {
-        return this.values[this.currentIndex];
-    }
+    updateVisuals(animate) {
+        const containerH = this.container.clientHeight;
+        const centerOffset = (containerH / 2) - (this.itemHeight / 2);
+        const totalItems = (this.max - this.min) + 1;
+        const targetIndex = (this.value - this.min) + totalItems;
+        const targetOffset = centerOffset - (targetIndex * this.itemHeight);
+        
+        this.currentOffset = targetOffset;
+        this.track.style.transition = animate ? 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)' : 'none';
+        this.track.style.transform = `translateY(${this.currentOffset}px)`;
 
-    setupInteractions() {
-        let startY = 0;
-        let startIdx = 0;
-        let isDragging = false;
-
-        const onStart = (y) => {
-            isDragging = true;
-            startY = y;
-            startIdx = this.currentIndex;
-            this.itemsDiv.style.transition = 'none';
-        };
-
-        const onMove = (y) => {
-            if(!isDragging) return;
-            const delta = y - startY;
-            const moveItems = Math.round(delta / this.itemHeight);
-            let newIdx = startIdx - moveItems;
-            // Clamp
-            if(newIdx < 0) newIdx = 0;
-            if(newIdx >= this.values.length) newIdx = this.values.length - 1;
-            
-            if(newIdx !== this.currentIndex) {
-                this.currentIndex = newIdx;
-                this.updatePosition(false);
-                playSound('tick');
+        this.items.forEach((itemObj) => {
+            if (itemObj.value === this.value && itemObj.group === 1) {
+                itemObj.element.classList.add('active');
+            } else {
+                itemObj.element.classList.remove('active');
             }
-        };
-
-        const onEnd = () => {
-            if(!isDragging) return;
-            isDragging = false;
-            // Snap logic handled by clamping in move, but ensure clean snap
-            this.updatePosition(true);
-            if(this.onChange) this.onChange(this.getValue());
-        };
-
-        // Mouse
-        this.container.addEventListener('mousedown', e => onStart(e.clientY));
-        window.addEventListener('mousemove', e => onMove(e.clientY));
-        window.addEventListener('mouseup', onEnd);
-
-        // Touch
-        this.container.addEventListener('touchstart', e => onStart(e.touches[0].clientY), {passive: true});
-        window.addEventListener('touchmove', e => onMove(e.touches[0].clientY), {passive: true});
-        window.addEventListener('touchend', onEnd);
-
-        // Wheel
-        this.container.addEventListener('wheel', e => {
-            e.preventDefault();
-            const dir = Math.sign(e.deltaY);
-            let newIdx = this.currentIndex + dir;
-            if(newIdx >= 0 && newIdx < this.values.length) {
-                this.setValue(newIdx);
-            }
-        }, {passive: false});
+        });
     }
 }
 
-// Game Logic
-const game = {
-    mode: null, // 'learning' or 'competition'
-    difficulty: 'easy',
-    is24Hour: false,
-    round: 1,
-    maxRounds: 10,
-    score: 0,
-    correctAnswers: 0,
-    timer: null,
-    timeLeft: 30,
-    targetTime: { h: 0, m: 0, s: 0 },
-    
-    // Rollers
-    hourRoller: null,
-    minuteRoller: null,
-    ampmRoller: null,
+function initClock() {
+    canvas = document.getElementById('clockCanvas');
+    ctx = canvas.getContext('2d');
+    skyCanvas = document.getElementById('skyCanvas');
+    skyCtx = skyCanvas.getContext('2d');
+    clockRadius = canvas.width / 2;
+    drawClock(12, 0, 0);
+    drawSkyPath();
+}
 
-    init() {
-        this.setupTheme();
-        this.setupFormat();
-        this.canvas = document.getElementById('clockCanvas');
-        this.ctx = this.canvas.getContext('2d');
-        
-        // Resize canvas for high DPI
-        const size = 300;
-        this.canvas.width = size * 2;
-        this.canvas.height = size * 2;
-        this.canvas.style.width = `${size}px`;
-        this.canvas.style.height = `${size}px`;
-        this.ctx.scale(2, 2);
-        this.center = size / 2;
-        this.radius = size / 2 - 10;
+function drawClock(h, m, s) {
+    const W = canvas.width;
+    const H = canvas.height;
+    const CX = W / 2;
+    const CY = H / 2;
+    const R = clockRadius - 10;
 
-        // Interaction for learning mode
-        this.canvas.addEventListener('mousedown', this.handleClockStart.bind(this));
-        this.canvas.addEventListener('mousemove', this.handleClockMove.bind(this));
-        window.addEventListener('mouseup', this.handleClockEnd.bind(this));
-        
-        // Touch support for clock
-        this.canvas.addEventListener('touchstart', e => {
-            const touch = e.touches[0];
-            const rect = this.canvas.getBoundingClientRect();
-            this.handleClockStart({ clientX: touch.clientX, clientY: touch.clientY, target: this.canvas });
-        }, {passive: false});
-        this.canvas.addEventListener('touchmove', e => {
-            e.preventDefault();
-            const touch = e.touches[0];
-            this.handleClockMove({ clientX: touch.clientX, clientY: touch.clientY });
-        }, {passive: false});
+    ctx.clearRect(0, 0, W, H);
 
-        document.getElementById('checkBtn').addEventListener('click', () => this.checkAnswer());
-        document.getElementById('nextBtn').addEventListener('click', () => this.nextRound());
-        document.getElementById('quitBtn').addEventListener('click', () => location.reload());
-    },
+    for (let i = 0; i < 60; i++) {
+        const angle = (i * 6) * (Math.PI / 180);
+        const isHour = i % 5 === 0;
+        
+        const len = isHour ? 15 : 8;
+        const width = isHour ? 3 : 1;
+        
+        const x1 = CX + Math.sin(angle) * (R - len);
+        const y1 = CY - Math.cos(angle) * (R - len);
+        const x2 = CX + Math.sin(angle) * R;
+        const y2 = CY - Math.cos(angle) * R;
 
-    setupTheme() {
-        const btn = document.getElementById('themeToggle');
-        btn.addEventListener('click', () => {
-            const body = document.body;
-            const isDark = body.getAttribute('data-theme') === 'dark';
-            body.setAttribute('data-theme', isDark ? 'light' : 'dark');
-            btn.textContent = isDark ? '🌙 Dark Mode' : '☀️ Light Mode';
-            this.drawClock();
-        });
-    },
-
-    setupFormat() {
-        const btn = document.getElementById('formatToggle');
-        btn.addEventListener('click', () => {
-            this.is24Hour = !this.is24Hour;
-            btn.textContent = this.is24Hour ? '24H' : '12H';
-            if(this.mode) this.resetRollers();
-        });
-    },
-
-    showScreen(id) {
-        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-        document.getElementById(id).classList.add('active');
-    },
-
-    startLearningMode() {
-        this.mode = 'learning';
-        this.showScreen('gameScreen');
-        document.getElementById('modeDisplay').textContent = 'Mode: Learning';
-        document.getElementById('roundDisplay').style.display = 'none';
-        document.getElementById('timerDisplay').style.display = 'none';
-        document.getElementById('scoreDisplay').style.display = 'none';
-        document.getElementById('difficultySelect').style.display = 'block';
-        
-        this.difficulty = document.getElementById('difficultyLevel').value;
-        this.generateTarget();
-        this.initRollers();
-        this.drawClock();
-        document.getElementById('targetInstruction').textContent = `Set the clock to: ${this.formatTarget()}`;
-        document.getElementById('checkBtn').style.display = 'none';
-        document.getElementById('nextBtn').style.display = 'inline-block';
-        document.getElementById('nextBtn').textContent = "Reset Practice";
-    },
-
-    startCompetitionMode() {
-        this.mode = 'competition';
-        this.score = 0;
-        this.round = 1;
-        this.correctAnswers = 0;
-        this.difficulty = document.getElementById('difficultyLevel').value;
-        
-        this.showScreen('gameScreen');
-        document.getElementById('modeDisplay').textContent = 'Mode: Competition';
-        document.getElementById('roundDisplay').style.display = 'inline';
-        document.getElementById('timerDisplay').style.display = 'inline';
-        document.getElementById('scoreDisplay').style.display = 'inline';
-        document.getElementById('difficultySelect').style.display = 'none';
-        
-        this.startRound();
-    },
-
-    startRound() {
-        if(this.round > this.maxRounds) {
-            this.endGame();
-            return;
-        }
-        
-        document.getElementById('roundDisplay').textContent = `Round: ${this.round}/${this.maxRounds}`;
-        document.getElementById('scoreDisplay').textContent = `Score: ${this.score}`;
-        document.getElementById('feedback').textContent = '';
-        document.getElementById('checkBtn').style.display = 'inline-block';
-        document.getElementById('nextBtn').style.display = 'none';
-        
-        // Timer setup
-        let timeLimit = 30;
-        if(this.difficulty === 'hard') timeLimit = 15;
-        this.timeLeft = timeLimit;
-        document.getElementById('timerDisplay').textContent = `Time: ${this.timeLeft}s`;
-        
-        clearInterval(this.timer);
-        this.timer = setInterval(() => {
-            this.timeLeft--;
-            document.getElementById('timerDisplay').textContent = `Time: ${this.timeLeft}s`;
-            if(this.timeLeft <= 0) {
-                clearInterval(this.timer);
-                this.handleTimeout();
-            }
-        }, 1000);
-
-        this.generateTarget();
-        this.initRollers();
-        this.drawClock();
-        document.getElementById('targetInstruction').textContent = "What time is it?";
-    },
-
-    generateTarget() {
-        this.targetTime.h = Math.floor(Math.random() * (this.is24Hour ? 24 : 12));
-        if(!this.is24Hour && this.targetTime.h === 0) this.targetTime.h = 12;
-        
-        this.targetTime.m = Math.floor(Math.random() * 60);
-        
-        if(this.difficulty === 'easy') {
-            this.targetTime.s = 0;
-            // Snap to 5 mins for easy? No, let's keep it random but no seconds displayed
-        } else {
-            this.targetTime.s = Math.floor(Math.random() * 60);
-        }
-    },
-
-    formatTarget() {
-        const h = this.targetTime.h.toString().padStart(2,'0');
-        const m = this.targetTime.m.toString().padStart(2,'0');
-        const s = this.targetTime.s.toString().padStart(2,'0');
-        let suffix = '';
-        if(!this.is24Hour) {
-            suffix = this.targetTime.h >= 12 ? ' PM' : ' AM';
-            let h12 = this.targetTime.h % 12;
-            if(h12 === 0) h12 = 12;
-            return `${h12.toString().padStart(2,'0')}:${m}:${s}${suffix}`;
-        }
-        return `${h}:${m}:${s}`;
-    },
-
-    initRollers() {
-        const hMax = this.is24Hour ? 23 : 12;
-        const hMin = this.is24Hour ? 0 : 1;
-        const hStart = this.is24Hour ? 0 : 1;
-        
-        if(this.hourRoller) { 
-            // Re-initialize if format changed
-            const container = document.getElementById('hourRoller');
-            container.innerHTML = '<div class="roller-highlight"></div><div class="roller-items"></div>';
-        }
-        
-        this.hourRoller = new RollerSlider('hourRoller', hMin, hMax, hStart, (val) => {});
-        this.minuteRoller = new RollerSlider('minuteRoller', 0, 59, 0, (val) => {});
-        
-        const ampmCont = document.getElementById('ampmContainer');
-        if(this.is24Hour) {
-            ampmCont.style.display = 'none';
-        } else {
-            ampmCont.style.display = 'block';
-            if(this.ampmRoller) {
-                 const container = document.getElementById('ampmContainer');
-                 container.innerHTML = '<div class="roller-highlight"></div><div class="roller-items"></div>';
-            }
-            this.ampmRoller = new RollerSlider('ampmContainer', 0, 1, 0, (val) => {});
-        }
-    },
-
-    resetRollers() {
-        this.initRollers();
-    },
-
-    drawClock() {
-        const ctx = this.ctx;
-        const w = this.canvas.width / 2;
-        const h = this.canvas.height / 2;
-        
-        ctx.clearRect(0, 0, w, h);
-        
-        // Face
         ctx.beginPath();
-        ctx.arc(this.center, this.center, this.radius, 0, 2 * Math.PI);
-        ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--clock-face');
-        ctx.fill();
-        ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--clock-border');
-        ctx.lineWidth = 8;
-        ctx.stroke();
-
-        // Markers
-        for(let i=0; i<12; i++) {
-            const angle = (i * 30) * Math.PI / 180;
-            const x1 = this.center + (this.radius - 20) * Math.sin(angle);
-            const y1 = this.center - (this.radius - 20) * Math.cos(angle);
-            const x2 = this.center + (this.radius - 10) * Math.sin(angle);
-            const y2 = this.center - (this.radius - 10) * Math.cos(angle);
-            
-            ctx.beginPath();
-            ctx.moveTo(x1, y1);
-            ctx.lineTo(x2, y2);
-            ctx.lineWidth = 4;
-            ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--text-color');
-            ctx.stroke();
-        }
-
-        // Hands calculation
-        let h = this.targetTime.h;
-        let m = this.targetTime.m;
-        let s = this.targetTime.s;
-
-        if(!this.is24Hour && h > 12) h -= 12;
-        if(h === 12 && !this.is24Hour) h = 0; // 12 AM/PM correction for angle
-
-        const sAngle = (s * 6) * Math.PI / 180;
-        const mAngle = ((m * 6) + (s * 0.1)) * Math.PI / 180;
-        const hAngle = ((h * 30) + (m * 0.5)) * Math.PI / 180;
-
-        this.drawHand(hAngle, 60, 6, getComputedStyle(document.body).getPropertyValue('--hand-hour'));
-        this.drawHand(mAngle, 80, 4, getComputedStyle(document.body).getPropertyValue('--hand-minute'));
-        this.drawHand(sAngle, 90, 2, getComputedStyle(document.body).getPropertyValue('--hand-second'));
-
-        // Center dot
-        ctx.beginPath();
-        ctx.arc(this.center, this.center, 8, 0, 2*Math.PI);
-        ctx.fillStyle = '#333';
-        ctx.fill();
-    },
-
-    drawHand(angle, length, width, color) {
-        const ctx = this.ctx;
-        const x = this.center + length * Math.sin(angle);
-        const y = this.center - length * Math.cos(angle);
-        
-        ctx.beginPath();
-        ctx.moveTo(this.center, this.center);
-        ctx.lineTo(x, y);
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
         ctx.lineWidth = width;
-        ctx.strokeStyle = color;
-        ctx.lineCap = 'round';
+        ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--text-color').trim();
         ctx.stroke();
-    },
+    }
 
-    // Interactive Clock Logic (Learning Mode)
-    draggingHand: null,
-    handleClockStart(e) {
-        if(this.mode !== 'learning') return;
-        const rect = this.canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left - (rect.width/2);
-        const y = e.clientY - rect.top - (rect.height/2);
-        const dist = Math.sqrt(x*x + y*y);
-        const angle = Math.atan2(x, -y); // 0 at 12 o'clock
-        
-        if(dist < this.radius) {
-            // Determine which hand is closest roughly? 
-            // Simplified: Dragging adjusts minutes primarily, shift key for hours?
-            // Let's make it simple: Dragging sets the minute hand, hour follows.
-            this.draggingHand = 'minute';
-            this.updateClockFromAngle(angle);
-        }
-    },
-    handleClockMove(e) {
-        if(!this.draggingHand) return;
-        const rect = this.canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left - (rect.width/2);
-        const y = e.clientY - rect.top - (rect.height/2);
-        const angle = Math.atan2(x, -y);
-        this.updateClockFromAngle(angle);
-    },
-    handleClockEnd() {
-        this.draggingHand = null;
-    },
-    updateClockFromAngle(angle) {
-        let deg = angle * 180 / Math.PI;
-        if(deg < 0) deg += 360;
-        const m = Math.round(deg / 6);
-        this.targetTime.m = m % 60;
-        // Hour hand moves slightly with minutes
-        // For simplicity in learning mode, we just update minutes and redraw
-        // To set hour, maybe we add a separate control or tap? 
-        // Let's assume user sets hour via roller in learning mode too? 
-        // Prompt said "Hands must be interactive... Set the clock to 07:35".
-        // Okay, let's allow clicking near center for hour, outer for minute?
-        // Simplified: Dragging sets Minute. Click to toggle Hour drag?
-        // Better: Just update minute. User can use rollers to set Hour in learning mode too?
-        // Actually, let's just update the clock visual.
-        this.drawClock();
-        
-        // Check instant feedback
-        const inputH = parseInt(this.hourRoller.getValue());
-        const inputM = parseInt(this.minuteRoller.getValue());
-        // Sync rollers to clock? Or clock to rollers?
-        // Prompt: "Show a target time... User can drag/rotate each hand"
-        // This implies the hands ARE the input.
-        // But we also have rollers. Let's sync rollers to clock hands for Learning Mode.
-        this.minuteRoller.setValue(this.targetTime.m);
-    },
+    const hAngle = ((h % 12) + m / 60 + s / 3600) * 30 * (Math.PI / 180);
+    drawHand(CX, CY, hAngle, 0.6 * R, 6, '--hand-hour');
 
-    checkAnswer() {
-        clearInterval(this.timer);
-        const hInput = parseInt(this.hourRoller.getValue());
-        const mInput = parseInt(this.minuteRoller.getValue());
-        let apInput = 0;
-        if(!this.is24Hour) {
-            apInput = this.ampmRoller.getValue() === 'PM' ? 1 : 0;
-        }
+    const mAngle = (m + s / 60) * 6 * (Math.PI / 180);
+    drawHand(CX, CY, mAngle, 0.85 * R, 4, '--hand-minute');
 
-        let correctH = this.targetTime.h;
-        let correctM = this.targetTime.m;
-        
-        // Normalize for comparison
-        if(!this.is24Hour) {
-            // Convert input to 24h for comparison
-            let input24 = hInput;
-            if(apInput === 1 && hInput !== 12) input24 += 12;
-            if(apInput === 0 && hInput === 12) input24 = 0;
-            
-            if(input24 === correctH && mInput === correctM) {
-                this.handleSuccess();
-            } else {
-                this.handleFailure(correctH, correctM);
-            }
-        } else {
-            if(hInput === correctH && mInput === correctM) {
-                this.handleSuccess();
-            } else {
-                this.handleFailure(correctH, correctM);
-            }
-        }
+    const sAngle = s * 6 * (Math.PI / 180);
+    drawHand(CX, CY, sAngle, 0.9 * R, 2, '--hand-second');
+
+    ctx.beginPath();
+    ctx.arc(CX, CY, 8, 0, 2 * Math.PI);
+    ctx.fillStyle = '#2d3748';
+    ctx.fill();
+}
+
+function drawHand(cx, cy, angle, length, width, colorVar) {
+    const color = getComputedStyle(document.body).getPropertyValue(colorVar).trim();
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+    ctx.beginPath();
+    ctx.rect(-width / 2, -length, width, length);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.restore();
+}
+
+function drawSkyPath() {
+    const W = skyCanvas.width;
+    const H = skyCanvas.height;
+    const CX = W / 2;
+    const CY = H / 2;
+    const R = W / 2 - 10;
+
+    skyCtx.clearRect(0, 0, W, H);
+
+    skyCtx.beginPath();
+    skyCtx.arc(CX, CY, R, Math.PI, 0); 
+    skyCtx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--hand-minute').trim();
+    skyCtx.lineWidth = 2;
+    skyCtx.setLineDash([5, 5]);
+    skyCtx.stroke();
+
+    skyCtx.beginPath();
+    skyCtx.arc(CX, CY, R, 0, Math.PI); 
+    skyCtx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--hand-hour').trim();
+    skyCtx.stroke();
+    
+    skyCtx.setLineDash([]);
+
+    skyCtx.beginPath();
+    skyCtx.moveTo(10, CY);
+    skyCtx.lineTo(W - 10, CY);
+    skyCtx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--text-color').trim();
+    skyCtx.globalAlpha = 0.3;
+    skyCtx.stroke();
+    skyCtx.globalAlpha = 1.0;
+}
+
+function updateCelestialBody(h, m) {
+    let decimalH = h + m / 60;
+    const W = skyCanvas.width;
+    const H = skyCanvas.height;
+    const CX = W / 2;
+    const CY = H / 2;
+    const R = W / 2 - 10;
+
+    const isDay = decimalH >= 5.5 && decimalH < 17.5;
+    
+    ui.celestialBody.textContent = isDay ? '☀️' : '🌙';
+    
+    let progress;
+    if (isDay) {
+        progress = (decimalH - 5.5) / 12; 
+    } else {
+        let nightH = decimalH;
+        if (nightH < 5.5) nightH += 24;
+        progress = (nightH - 17.5) / 12;
+    }
+
+    const angle = progress * Math.PI;
+    
+    const x = CX + R * Math.cos(angle);
+    
+    let y;
+    if (isDay) {
+        y = CY - R * Math.sin(angle);
+    } else {
+        y = CY + R * Math.sin(angle);
+    }
+
+    ui.celestialBody.style.left = `${x - 20}px`;
+    ui.celestialBody.style.top = `${y - 20}px`;
+}
+
+const game = {
+    startLearningMode: () => {
+        state.mode = 'learning';
+        state.difficulty = document.getElementById('difficultyLevel').value;
+        startGame();
     },
-
-    handleSuccess() {
-        playSound('success');
-        const fb = document.getElementById('feedback');
-        fb.textContent = "Correct! 🎉";
-        fb.className = "feedback correct";
-        
-        if(this.mode === 'competition') {
-            const bonus = Math.max(0, this.timeLeft * 10);
-            const points = 100 + bonus;
-            this.score += points;
-            this.correctAnswers++;
-            document.getElementById('scoreDisplay').textContent = `Score: ${this.score}`;
-            document.getElementById('checkBtn').style.display = 'none';
-            document.getElementById('nextBtn').style.display = 'inline-block';
-        } else {
-            fb.textContent = "Perfect! You set it correctly.";
-        }
-    },
-
-    handleFailure(ch, cm) {
-        playSound('error');
-        const fb = document.getElementById('feedback');
-        fb.textContent = `Incorrect. Correct: ${ch.toString().padStart(2,'0')}:${cm.toString().padStart(2,'0')}`;
-        fb.className = "feedback incorrect";
-        
-        if(this.mode === 'competition') {
-            document.getElementById('checkBtn').style.display = 'none';
-            document.getElementById('nextBtn').style.display = 'inline-block';
-        }
-    },
-
-    handleTimeout() {
-        playSound('error');
-        const fb = document.getElementById('feedback');
-        fb.textContent = `Time's up! It was ${this.targetTime.h.toString().padStart(2,'0')}:${this.targetTime.m.toString().padStart(2,'0')}`;
-        fb.className = "feedback incorrect";
-        document.getElementById('checkBtn').style.display = 'none';
-        document.getElementById('nextBtn').style.display = 'inline-block';
-    },
-
-    nextRound() {
-        this.round++;
-        this.startRound();
-    },
-
-    endGame() {
-        this.showScreen('resultsScreen');
-        document.getElementById('finalScoreVal').textContent = this.score;
-        document.getElementById('correctCount').textContent = this.correctAnswers;
+    startCompetitionMode: () => {
+        state.mode = 'competition';
+        state.difficulty = document.getElementById('difficultyLevel').value;
+        startGame();
     }
 };
 
-// Start
-window.onload = () => game.init();
+function startGame() {
+    state.score = 0;
+    state.round = 0;
+    state.isPlaying = true;
+    
+    screens.menu.classList.remove('active');
+    screens.results.classList.remove('active');
+    screens.game.classList.add('active');
+    
+    ui.modeDisplay.textContent = `Mode: ${state.mode === 'learning' ? 'Learning' : 'Competition'}`;
+    ui.checkBtn.style.display = 'block';
+    ui.nextBtn.style.display = 'none';
+    
+    setupRollers();
+    
+    nextRound();
+}
+
+function setupRollers() {
+    const hMax = state.format === '12' ? 12 : 23;
+    const hMin = state.format === '12' ? 1 : 0;
+    
+    ui.ampmGroup.style.display = state.format === '12' ? 'flex' : 'none';
+
+    hourRoller = new RollerSlider('hourRoller', hMin, hMax, 12, (val) => {});
+    minuteRoller = new RollerSlider('minuteRoller', 0, 59, 0, (val) => {});
+    
+    if (state.format === '12') {
+        ampmRoller = new RollerSlider('ampmRoller', 0, 1, 0, (val) => {});
+        const items = document.querySelectorAll('#ampmRoller .roller-item');
+        items.forEach(item => {
+            if (item.textContent === '00') item.textContent = "AM";
+            if (item.textContent === '01') item.textContent = "PM";
+        });
+    }
+}
+
+function nextRound() {
+    if (state.mode === 'competition' && state.round >= state.maxRounds) {
+        endGame();
+        return;
+    }
+
+    state.round++;
+    ui.roundDisplay.textContent = `Round: ${state.round}/${state.maxRounds}`;
+    ui.scoreDisplay.textContent = `Score: ${state.score}`;
+    ui.feedback.textContent = '';
+    ui.feedback.className = 'feedback';
+    
+    clearInterval(state.timer);
+    if (state.mode === 'competition') {
+        let limit = 30;
+        if (state.difficulty === 'medium') limit = 20;
+        if (state.difficulty === 'hard') limit = 15;
+        state.timeLeft = limit;
+        ui.timerDisplay.style.display = 'inline';
+        ui.timerDisplay.textContent = `Time: ${state.timeLeft}s`;
+        
+        state.timer = setInterval(() => {
+            state.timeLeft--;
+            ui.timerDisplay.textContent = `Time: ${state.timeLeft}s`;
+            if (state.timeLeft <= 0) {
+                clearInterval(state.timer);
+                handleAnswer(false);
+            }
+        }, 1000);
+    } else {
+        ui.timerDisplay.style.display = 'none';
+    }
+
+    const h = Math.floor(Math.random() * (state.format === '12' ? 12 : 24));
+    const m = Math.floor(Math.random() * 60);
+    const s = (state.difficulty === 'easy') ? 0 : Math.floor(Math.random() * 60);
+    
+    state.targetTime = { h, m, s };
+    
+    drawClock(h, m, s);
+    updateCelestialBody(h, m);
+    
+    const startH = state.format === '12' ? 12 : 0;
+    hourRoller.setValue(startH);
+    minuteRoller.setValue(0);
+    if (state.format === '12') {
+        ampmRoller.setValue(h >= 12 ? 1 : 0);
+    }
+    
+    ui.checkBtn.style.display = 'block';
+    ui.nextBtn.style.display = 'none';
+}
+
+function checkAnswer() {
+    let inputH = hourRoller.value;
+    let inputM = minuteRoller.value;
+    
+    if (state.format === '12') {
+        const isPM = ampmRoller.value === 1;
+        if (isPM && inputH !== 12) inputH += 12;
+        if (!isPM && inputH === 12) inputH = 0;
+    }
+    
+    const correct = (inputH === state.targetTime.h && inputM === state.targetTime.m);
+    handleAnswer(correct);
+}
+
+function handleAnswer(isCorrect) {
+    clearInterval(state.timer);
+    ui.checkBtn.style.display = 'none';
+    ui.nextBtn.style.display = 'block';
+    
+    if (isCorrect) {
+        ui.feedback.textContent = "Correct!";
+        ui.feedback.classList.add('correct');
+        playSound('correct');
+        state.score += 10 + (state.mode === 'competition' ? state.timeLeft : 0);
+    } else {
+        ui.feedback.textContent = `Wrong! It was ${formatTime(state.targetTime.h, state.targetTime.m)}`;
+        ui.feedback.classList.add('incorrect');
+        playSound('wrong');
+        drawClock(state.targetTime.h, state.targetTime.m, state.targetTime.s);
+    }
+    ui.scoreDisplay.textContent = `Score: ${state.score}`;
+}
+
+function formatTime(h, m) {
+    if (state.format === '12') {
+        const suffix = h >= 12 ? 'PM' : 'AM';
+        const h12 = h % 12 || 12;
+        return `${h12}:${m.toString().padStart(2,'0')} ${suffix}`;
+    }
+    return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`;
+}
+
+function endGame() {
+    screens.game.classList.remove('active');
+    screens.results.classList.add('active');
+    document.getElementById('finalScoreVal').textContent = state.score;
+    document.getElementById('correctCount').textContent = state.score > 0 ? "See Score" : "0";
+}
+
+ui.checkBtn.addEventListener('click', checkAnswer);
+ui.nextBtn.addEventListener('click', nextRound);
+ui.quitBtn.addEventListener('click', () => location.reload());
+
+document.getElementById('themeToggle').addEventListener('click', () => {
+    state.theme = state.theme === 'light' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', state.theme);
+    document.getElementById('themeToggle').textContent = state.theme === 'light' ? '🌙 Dark' : '☀️ Light';
+    if(state.isPlaying) {
+        drawClock(state.targetTime.h, state.targetTime.m, state.targetTime.s);
+        drawSkyPath();
+    }
+});
+
+document.getElementById('formatToggle').addEventListener('click', () => {
+    state.format = state.format === '12' ? '24' : '12';
+    document.getElementById('formatToggle').textContent = state.format === '12' ? '12H / 24H' : '24H / 12H';
+    if(state.isPlaying) setupRollers();
+});
+
+initClock();

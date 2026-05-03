@@ -3,16 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Clock Master - Learn to Read Time</title>
+    <title>1crAPP - Clock Master</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div class="game-container">
         <!-- Header -->
         <header class="game-header">
-            <h1>⏰ Clock Master</h1>
+            <h1>⏰ 1crAPP</h1>
             <div class="settings-bar">
-                <button id="themeToggle" class="btn-small">🌙 Dark Mode</button>
+                <button id="themeToggle" class="btn-small">🌙 Dark</button>
                 <button id="formatToggle" class="btn-small">12H / 24H</button>
             </div>
         </header>
@@ -23,7 +23,7 @@
                 <h2>Select Mode</h2>
                 <button class="btn-primary" onclick="game.startLearningMode()">🎓 Learning Mode</button>
                 <button class="btn-primary" onclick="game.startCompetitionMode()">🏆 Competition Mode</button>
-                <div class="difficulty-select" id="difficultySelect" style="display:none;">
+                <div class="difficulty-select" id="difficultySelect" style="display:none; margin-top: 15px;">
                     <label>Difficulty:</label>
                     <select id="difficultyLevel">
                         <option value="easy">Easy (Hours & Minutes)</option>
@@ -43,29 +43,48 @@
                 <span id="scoreDisplay">Score: 0</span>
             </div>
 
-            <div class="clock-area">
-                <canvas id="clockCanvas" width="300" height="300"></canvas>
-                <div id="targetInstruction" class="instruction">Set the clock to:</div>
+            <div class="clock-wrapper">
+                <canvas id="clockCanvas" width="320" height="320"></canvas>
+                
+                <div class="ampm-indicator-container">
+                    <canvas id="skyCanvas" width="200" height="200"></canvas>
+                    <div class="direction-label label-e">E</div>
+                    <div class="direction-label label-w">W</div>
+                    <div id="celestialBody" class="celestial-body">☀️</div>
+                </div>
             </div>
 
+            <div id="targetInstruction" class="instruction">Set the clock to:</div>
+
+            <!-- Slider Input Area -->
             <div class="input-area">
-                <div class="roller-container">
-                    <div class="roller-column" id="hourRoller">
+                <div class="roller-group">
+                    <div class="roller-label">HH</div>
+                    <div class="roller-window" id="hourRoller">
                         <div class="roller-highlight"></div>
-                        <div class="roller-items"></div>
-                    </div>
-                    <div class="separator">:</div>
-                    <div class="roller-column" id="minuteRoller">
-                        <div class="roller-highlight"></div>
-                        <div class="roller-items"></div>
-                    </div>
-                    <div id="ampmContainer" class="roller-column ampm">
-                        <div class="roller-highlight"></div>
-                        <div class="roller-items"></div>
+                        <div class="roller-track"></div>
                     </div>
                 </div>
-                <p class="hint">Drag rollers or use mouse wheel</p>
+                
+                <div class="separator">:</div>
+
+                <div class="roller-group">
+                    <div class="roller-label">MM</div>
+                    <div class="roller-window" id="minuteRoller">
+                        <div class="roller-highlight"></div>
+                        <div class="roller-track"></div>
+                    </div>
+                </div>
+
+                <div class="roller-group" id="ampmGroup" style="display:none;">
+                    <div class="roller-label">AM/PM</div>
+                    <div class="roller-window" id="ampmRoller">
+                        <div class="roller-highlight"></div>
+                        <div class="roller-track"></div>
+                    </div>
+                </div>
             </div>
+            <p class="hint">Drag up/down or use mouse wheel</p>
 
             <div class="controls">
                 <button id="checkBtn" class="btn-success">Check Answer</button>
