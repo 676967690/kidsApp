@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clock Master - Learn to Read Time</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="game-container">
+        <!-- Header -->
+        <header class="game-header">
+            <h1>⏰ Clock Master</h1>
+            <div class="settings-bar">
+                <button id="themeToggle" class="btn-small">🌙 Dark Mode</button>
+                <button id="formatToggle" class="btn-small">12H / 24H</button>
+            </div>
+        </header>
+
+        <!-- Main Menu -->
+        <div id="mainMenu" class="screen active">
+            <div class="menu-card">
+                <h2>Select Mode</h2>
+                <button class="btn-primary" onclick="game.startLearningMode()">🎓 Learning Mode</button>
+                <button class="btn-primary" onclick="game.startCompetitionMode()">🏆 Competition Mode</button>
+                <div class="difficulty-select" id="difficultySelect" style="display:none;">
+                    <label>Difficulty:</label>
+                    <select id="difficultyLevel">
+                        <option value="easy">Easy (Hours & Minutes)</option>
+                        <option value="medium">Medium (With Seconds)</option>
+                        <option value="hard">Hard (Random & Fast)</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Game Screen -->
+        <div id="gameScreen" class="screen">
+            <div class="game-info">
+                <span id="modeDisplay">Mode: Learning</span>
+                <span id="roundDisplay">Round: 1/10</span>
+                <span id="timerDisplay" style="display:none;">Time: 30s</span>
+                <span id="scoreDisplay">Score: 0</span>
+            </div>
+
+            <div class="clock-area">
+                <canvas id="clockCanvas" width="300" height="300"></canvas>
+                <div id="targetInstruction" class="instruction">Set the clock to:</div>
+            </div>
+
+            <div class="input-area">
+                <div class="roller-container">
+                    <div class="roller-column" id="hourRoller">
+                        <div class="roller-highlight"></div>
+                        <div class="roller-items"></div>
+                    </div>
+                    <div class="separator">:</div>
+                    <div class="roller-column" id="minuteRoller">
+                        <div class="roller-highlight"></div>
+                        <div class="roller-items"></div>
+                    </div>
+                    <div id="ampmContainer" class="roller-column ampm">
+                        <div class="roller-highlight"></div>
+                        <div class="roller-items"></div>
+                    </div>
+                </div>
+                <p class="hint">Drag rollers or use mouse wheel</p>
+            </div>
+
+            <div class="controls">
+                <button id="checkBtn" class="btn-success">Check Answer</button>
+                <button id="nextBtn" class="btn-primary" style="display:none;">Next Round</button>
+                <button id="quitBtn" class="btn-danger">Quit</button>
+            </div>
+            
+            <div id="feedback" class="feedback"></div>
+        </div>
+
+        <!-- Results Screen -->
+        <div id="resultsScreen" class="screen">
+            <div class="menu-card">
+                <h2>Game Over!</h2>
+                <p class="final-score">Final Score: <span id="finalScoreVal">0</span></p>
+                <p>Correct: <span id="correctCount">0</span>/10</p>
+                <button class="btn-primary" onclick="location.reload()">Play Again</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
