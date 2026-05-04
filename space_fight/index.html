@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Astro Math Defender | Angle Shooter</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<!-- Main Menu -->
+<div class="main-menu" id="mainMenu">
+    <h1 class="title">🚀 ASTRO MATH DEFENDER</h1>
+    <p class="subtitle">Practice your angle calculation skills by rotating your spaceship to shoot incoming enemies.</p>
+    
+    <div class="mode-buttons">
+        <button id="learningModeBtn" class="mode-btn learning-btn">
+            📚 LEARNING MODE
+            <div class="mode-description">Enemy stays stationary - perfect for practice</div>
+        </button>
+        <button id="competitiveModeBtn" class="mode-btn competitive-btn">
+            🔥 COMPETITIVE MODE
+            <div class="mode-description">Enemy moves toward you - test your skills!</div>
+        </button>
+    </div>
+</div>
+
+<!-- Game Container -->
+<div class="game-container" id="gameContainer">
+    <!-- Canvas area: fills remaining vertical space -->
+    <div class="canvas-wrapper">
+        <canvas id="gameCanvas" width="1000" height="700"></canvas>
+    </div>
+
+    <!-- Bottom bar with stats - CENTER ALIGNED -->
+    <div class="info-panel">
+        <div class="stat">🎯 SCORE <span id="scoreValue">0</span></div>
+        <div class="stat">🔫 AMMO <span id="ammoValue">6</span></div>
+        <div class="angles-row">
+            <div class="stat">🛸 SHIP <span id="playerAngleUI">0°</span></div>
+            <div class="stat">👾 ENEMY <span id="enemyAngleUI">---</span></div>
+        </div>
+        <button id="restartButton" class="angle-btn restart-btn">🔄 RESTART</button>
+    </div>
+
+    <!-- MCQ Buttons area -->
+    <div id="optionsContainer" class="options-area"></div>
+    <div id="feedbackMsg"></div>
+</div>
+<script src="script.js"></script>
+</body>
+</html>
