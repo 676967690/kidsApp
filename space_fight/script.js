@@ -1,4 +1,4 @@
-<script>
+
     (function(){
         // ---------- CANVAS ----------
         const canvas = document.getElementById('gameCanvas');
@@ -560,4 +560,4 @@
         
         // Initialize the main menu (game will start after mode selection)
     })();
-</script>
+
